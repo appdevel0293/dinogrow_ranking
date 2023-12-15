@@ -8,6 +8,7 @@ import 'package:solana/encoder.dart';
 import 'package:solana/solana.dart';
 import 'package:solana_buffer/buffer.dart';
 import 'package:web3dart/credentials.dart';
+import 'package:web3dart/crypto.dart';
 import 'package:web3dart/web3dart.dart' as web3;
 import 'package:http/http.dart';
 
@@ -18,14 +19,18 @@ Future<String> saveScore(ConnectData connectData, BigInt score) async {
     final address = dotenv.env['POLYGON_CONTRACT_ADDRESS'].toString();
 
     final contractAddress = web3.EthereumAddress.fromHex(address);
-    result = await _saveScoreEvm(
-        connectData.rpc!, contractAddress, score, connectData.credEvm!);
+    final seed = dotenv.env['EVM_KEY'].toString();
+    Uint8List seedBytes = hexToBytes(seed);
+    result = await _saveScoreEvm(connectData.rpc!, contractAddress, score,
+        connectData.credEvm!, seedBytes);
     return result;
   } else if (connectData.selectedChain == Chain.bsc) {
     final address = dotenv.env['BSC_CONTRACT_ADDRESS'].toString();
     final contractAddress = web3.EthereumAddress.fromHex(address);
-    result = await _saveScoreEvm(
-        connectData.rpc!, contractAddress, score, connectData.credEvm!);
+    final seed = dotenv.env['EVM_KEY'].toString();
+    Uint8List seedBytes = hexToBytes(seed);
+    result = await _saveScoreEvm(connectData.rpc!, contractAddress, score,
+        connectData.credEvm!, seedBytes);
     return result;
   } else if (connectData.selectedChain == Chain.solana) {
     result = await _saveScoreSolana(
@@ -36,28 +41,33 @@ Future<String> saveScore(ConnectData connectData, BigInt score) async {
 }
 
 Future<String> _saveScoreEvm(String rpc, EthereumAddress contractAddress,
-    BigInt score, web3.Credentials credentials) async {
+    BigInt score, web3.Credentials credentials, Uint8List key) async {
   final abi = await rootBundle.loadString('assets/abi.json');
   final contract = web3.DeployedContract(
       web3.ContractAbi.fromJson(abi, 'userScores'), contractAddress);
   final function = contract.function("saveScore");
   final httpClient = Client();
   final ethClient = web3.Web3Client(rpc, httpClient);
-  final gasPrice = await ethClient.getGasPrice();
-  final chainId = await ethClient.getChainId();
-  final result = await ethClient.sendTransaction(
-    credentials,
-    web3.Transaction.callContract(
-      contract: contract,
-      function: function,
-      parameters: [score, credentials.address],
-      from: credentials.address,
-      gasPrice: web3.EtherAmount.inWei(gasPrice.getInWei),
-    ),
-    chainId: chainId.toInt(),
-  );
+  try {
+    final gasPrice = await ethClient.getGasPrice();
+    final chainId = await ethClient.getChainId();
+    final result = await ethClient.sendTransaction(
+      credentials,
+      web3.Transaction.callContract(
+        contract: contract,
+        function: function,
+        parameters: [score, credentials.address, key],
+        from: credentials.address,
+        gasPrice: web3.EtherAmount.inWei(gasPrice.getInWei),
+      ),
+      chainId: chainId.toInt(),
+    );
 
-  return result;
+    return result;
+  } catch (e) {
+    final result = e.toString();
+    return result;
+  }
 }
 
 Future<String> _saveScoreSolana(
